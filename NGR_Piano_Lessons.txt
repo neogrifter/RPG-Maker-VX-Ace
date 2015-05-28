@@ -1,0 +1,217 @@
+#-------------------------------------------------------------------------------
+#  Piano Lessons
+#-------------------------------------------------------------------------------
+#  For: RPGMAKER VX ACE
+#  Version 1.0
+#------------------------------------------------------------------------------#
+#  2015-05-18 - Version 1.0 - release
+#------------------------------------------------------------------------------#
+#  Piano lessons around the game. Evolving with different tune on each different
+#  piano in the world.
+#
+#  When a tune is played for the first time, a ballon appears on the end.
+#
+#  Based on Final Fantasy V side-quest.
+#------------------------------------------------------------------------------#
+#  SCRIPT CALL to play and evolve
+#------------------------------------------------------------------------------#
+#
+#  piano_lesson(id)
+#
+#  Play the piano and evolve if needed
+#  # id = unique ID of the piano
+#
+#  piano_maestro?
+#
+#  "true" if the player is now a maestro (all piano played)
+#
+#------------------------------------------------------------------------------#
+#  EXAMPLES:
+#  piano_lesson(4)  # play the piano number 4
+#------------------------------------------------------------------------------#
+
+$imported = {} if $imported.nil?
+$imported["Piano_Lesson"] = true
+
+module NGR_Piano
+  
+#------------------------------------------------------------------------------#  
+#  SETUP OPTIONS
+#------------------------------------------------------------------------------#
+  
+  # Variable ID where the progress is stocked.
+  PROGRESS_VAR = 3
+  
+  # Switch ID turned on at the start and off at the end
+  # Set to 0 to disable the feature
+  PIANO_SWITCH = 7
+  
+  # All the piano tunes in order of progress
+  # (first is for level 1 and last is the ultimate)
+  #
+  # [file name, length, volume, pitch, balloon]
+  #       - file name : name of the ME file
+  #       - length : length of the music in second (wait time for the player)
+  #       - volume : volume of the music (default : 80)
+  #       - pitch : pitch of the music (default : 100)
+  #       - balloon : display first time balloon (optionnal, default : true)
+  PIANO_SCORES = [
+                  ["FF5Piano_01.mid", 5, 80, 100],
+                  ["FF5Piano_02.mid", 7, 80, 100],
+                  ["FF5Piano_03.mid", 7, 80, 100],
+                  ["FF5Piano_04a.mid", 4, 80, 100, false],
+                  ["FF5Piano_04b.mid", 13, 80, 100],
+                  ["FF5Piano_05.mid", 7, 80, 100],
+                  ["FF5Piano_06.mid", 9, 80, 100],
+                  ["FF5Piano_07.mid", 8, 80, 100],
+                  ["FF5Piano_08.mid", 12, 80, 100]
+                ]
+
+#------------------------------------------------------------------------------#  
+#  END SETUP OPTIONS
+#------------------------------------------------------------------------------#
+end
+
+# For waiting time in front of piano
+# and display of final balloon + switch off
+class Game_Player < Game_Character  
+
+  # Set the waiting Count/Time in frame
+  def setWaitTime(timing, doAnim = false)
+    @wait_count = timing
+    @piano_do_anim = doAnim
+  end
+  
+  def display_Piano_Final_Anim
+    # Balloon note de musique
+    if @piano_do_anim
+      $game_player.balloon_id = 3
+    end
+    # Action switch Off
+    if NGR_Piano::PIANO_SWITCH > 0
+      $game_switches[NGR_Piano::PIANO_SWITCH] = false
+    end
+  end
+  
+  alias ngrpiano_movable_gchar movable?
+  def movable?
+    origValue = ngrpiano_movable_gchar
+    # move already disabled
+    # TODO necessaire ?
+    if !origValue
+      return origValue
+    end
+ 
+    if @wait_count > 0
+      return false
+    else
+      return origValue
+    end
+  end
+
+  alias ngrpiano_update_gchar update
+  def update
+    # update for wait count
+    if @wait_count > 0
+      @wait_count -= 1
+      if @wait_count == 0
+        # final process
+        display_Piano_Final_Anim
+      end
+    end
+    # original process
+    ngrpiano_update_gchar
+  end
+end   # Game_Player < Game_Character  
+
+class Game_Interpreter
+  # Check if piano has been played already
+  # aka : ID in the list
+  def piano_played(table, piano_id)
+    return table.include?(piano_id) 
+  end  
+  
+  def play_piano(level, firstTime)
+    # get matching tune
+    melody = NGR_Piano::PIANO_SCORES[level-1]
+
+    waitTime = melody[1]
+    if waitTime == nil
+      waitTime = 0
+    end
+
+    volume = melody[2]
+    if volume == nil
+      volume = 80
+    end
+
+    pitch = melody[3]
+    if pitch == nil
+      pitch = 100
+    end
+    
+    userAnimTag = melody[4]
+    if userAnimTag == nil
+      userAnimTag = true
+    end
+    
+    # Music + waiting player
+    Audio.me_play("Audio/ME/" + melody[0],volume,pitch)
+    
+    # First time anim
+    playAnim = false
+    if firstTime && userAnimTag
+      # first time + authorized by dev
+      playAnim = true
+    end
+    
+    $game_player.setWaitTime(waitTime * 60, playAnim)
+  end
+
+  # get current progress
+  def get_id_list()
+    idList = $game_variables[NGR_Piano::PROGRESS_VAR]
+    idList = [] if idList == nil
+    idList = [] if !idList.is_a?(Array)
+    return idList
+  end
+
+  # PIANO LESSON
+  def piano_lesson(piano_id)
+    
+    # Switch activated
+    if NGR_Piano::PIANO_SWITCH > 0
+      $game_switches[NGR_Piano::PIANO_SWITCH] = true
+    end
+    
+    # Init
+    idList = get_id_list()
+    playerLevel = idList.size
+    maxLevel = NGR_Piano::PIANO_SCORES.size
+    firstTime = false
+
+    # Not yet maestro and piano not played yet : level up
+    if playerLevel != maxLevel && (playerLevel ==0 || !piano_played(idList, piano_id))
+      idList[playerLevel] = piano_id
+      $game_variables[NGR_Piano::PROGRESS_VAR] = idList
+      playerLevel = playerLevel + 1
+      firstTime = true
+    end
+
+    # Playing matching tune
+    play_piano(playerLevel, firstTime);
+  end
+  
+  # Is the player a maestro ?
+  def piano_maestro?
+    idList = get_id_list()
+    return idList.size == NGR_Piano::PIANO_SCORES.size
+  end
+  
+  # get current player level
+  def get_music_level
+    idList = get_id_list()
+    return idList.size
+  end
+  
+end # Game_Interpreter
